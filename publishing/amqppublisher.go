@@ -3,7 +3,7 @@ package publishing
 import (
 	"fmt"
 
-	"github.com/marrick66/amqp/eventbus/converters"
+	"github.com/marrick66/amqp-eventbus/converters"
 	"github.com/streadway/amqp"
 )
 
