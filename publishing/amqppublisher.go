@@ -14,11 +14,12 @@ type AMQPPublisher struct {
 	channel   *amqp.Channel
 	exchanges map[string]bool
 	converter converters.ByteConverter
+	config    *ExchangeConfiguration
 }
 
 //New creates an AMQPPublisher instance from an existing
 //Channel object.
-func New(channel *amqp.Channel, converter converters.ByteConverter) (Publisher, error) {
+func New(channel *amqp.Channel, converter converters.ByteConverter, config *ExchangeConfiguration) (Publisher, error) {
 	if channel == nil {
 		return nil, fmt.Errorf("Channel cannot be nil")
 	}
@@ -27,10 +28,19 @@ func New(channel *amqp.Channel, converter converters.ByteConverter) (Publisher, 
 		return nil, fmt.Errorf(("Converter cannot be nil"))
 	}
 
+	//Set default config if not specified:
+	if config == nil {
+		config = &ExchangeConfiguration{
+			AutoDelete: true,
+			Durable:    false,
+			Internal:   false}
+	}
+
 	return &AMQPPublisher{
 		channel:   channel,
 		converter: converter,
-		exchanges: make(map[string]bool)}, nil
+		exchanges: make(map[string]bool),
+		config:    config}, nil
 }
 
 //Publish will declare the exchange/topic combination on the channel, if it has not already done
@@ -44,9 +54,9 @@ func (publisher *AMQPPublisher) Publish(exchange string, topic string, event int
 		if err = publisher.channel.ExchangeDeclare(
 			exchange,
 			"topic",
-			true,
-			true,
-			false,
+			publisher.config.Durable,
+			publisher.config.AutoDelete,
+			publisher.config.Internal,
 			false,
 			nil); err != nil {
 			return err

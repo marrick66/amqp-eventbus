@@ -24,7 +24,7 @@ func (converter *JSONConverter) ToBytes(source interface{}) ([]byte, error) {
 //FromBytes is a simple wrapper on top of json.Unmarshal. It's assumed that
 //the bytes to convert are encoded in UTF-8.
 func (converter *JSONConverter) FromBytes(source []byte, eventType reflect.Type) (interface{}, error) {
-	obj := reflect.New(eventType)
+	obj := reflect.New(eventType).Interface()
 
 	err := json.Unmarshal(source, &obj)
 	if err != nil {

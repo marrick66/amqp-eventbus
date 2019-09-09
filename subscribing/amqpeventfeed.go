@@ -25,18 +25,37 @@ type AMQPEventFeed struct {
 	subscriberMsgs  chan interface{}
 	errors          <-chan *amqp.Error
 	subscriberGroup *sync.WaitGroup
+	exchangeConfig  *ExchangeConfiguration
+	queueConfig     *QueueConfiguration
 }
 
 //New creates an instance of the AMQPEventFeed for subscribing. This is not self healing, since
 //the AMQP connection or channel can close at any time. This would stop the message loop on each
 //subscriber preventing any further handling.
-func New(channel *amqp.Channel, converter converters.ByteConverter) (EventFeed, error) {
+func New(channel *amqp.Channel, converter converters.ByteConverter, exchangeConfig *ExchangeConfiguration, queueConfig *QueueConfiguration) (EventFeed, error) {
 	if channel == nil {
 		return nil, fmt.Errorf("Channel cannot be nil")
 	}
 
 	if converter == nil {
 		return nil, fmt.Errorf("Converter cannot be nil")
+	}
+
+	//Set exchange defaults:
+	if exchangeConfig == nil {
+		exchangeConfig = &ExchangeConfiguration{
+			AutoDelete: true,
+			Durable:    false,
+			Internal:   false}
+	}
+
+	//Set queue defaults:
+	if queueConfig == nil {
+		queueConfig = &QueueConfiguration{
+			Name:       "",
+			AutoDelete: false,
+			Durable:    false,
+			Exclusive:  true}
 	}
 
 	errors := make(chan *amqp.Error)
@@ -47,11 +66,14 @@ func New(channel *amqp.Channel, converter converters.ByteConverter) (EventFeed, 
 		subscriptions:   make(map[subscriptionKey][]Subscriber),
 		subscriberMsgs:  make(chan interface{}),
 		errors:          channel.NotifyClose(errors),
-		subscriberGroup: &sync.WaitGroup{}}, nil
+		subscriberGroup: &sync.WaitGroup{},
+		queueConfig:     queueConfig,
+		exchangeConfig:  exchangeConfig}, nil
 }
 
 //Subscribe assigns a temporary queue for the subscriber, and binds it to the exchange with
-//the topic specified. A goroutine event loop for handling these items is started once subscribed.
+//the topic specified. A goroutine event loop for handling these items is started once subscribed. This
+//is not thread safe, since the slice append isn't.
 func (feed *AMQPEventFeed) Subscribe(exchange string, topic string, subscriber Subscriber) error {
 	if subscriber == nil {
 		return fmt.Errorf("subscriber cannot be nil")
@@ -82,9 +104,9 @@ func (feed *AMQPEventFeed) Subscribe(exchange string, topic string, subscriber S
 	if err := feed.channel.ExchangeDeclare(
 		exchange,
 		"topic",
-		true,
-		true,
-		false,
+		feed.exchangeConfig.Durable,
+		feed.exchangeConfig.AutoDelete,
+		feed.exchangeConfig.Internal,
 		false,
 		nil); err != nil {
 		return err
@@ -95,10 +117,10 @@ func (feed *AMQPEventFeed) Subscribe(exchange string, topic string, subscriber S
 
 	//Declare a temporary exclusive queue for this subscriber.
 	if queue, err = feed.channel.QueueDeclare(
-		"",
+		feed.queueConfig.Name,
 		false,
-		true,
-		true,
+		feed.queueConfig.Durable,
+		feed.queueConfig.AutoDelete,
 		false,
 		nil); err != nil {
 		return nil
@@ -116,7 +138,7 @@ func (feed *AMQPEventFeed) Subscribe(exchange string, topic string, subscriber S
 		queue.Name,
 		topic,
 		true,
-		true,
+		feed.queueConfig.Exclusive,
 		false,
 		false,
 		nil); err != nil {
